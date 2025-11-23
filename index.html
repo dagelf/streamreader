@@ -1066,6 +1066,49 @@ textarea.addEventListener('input', () => {
   saveState();
 });
 
+textarea.addEventListener('paste', async (e) => {
+  // Wait a moment for the paste to complete
+  setTimeout(async () => {
+    const text = textarea.value.trim();
+
+    // Check if it's a URL (simple check)
+    const urlPattern = /^https?:\/\//i;
+    const domainPattern = /^[a-zA-Z0-9][a-zA-Z0-9-]{0,61}[a-zA-Z0-9]?\.[a-zA-Z]{2,}/;
+
+    if (urlPattern.test(text) || domainPattern.test(text)) {
+      // Add https:// if not present
+      let url = text;
+      if (!urlPattern.test(url)) {
+        url = 'https://' + url;
+      }
+
+      // Show loading indicator
+      const originalText = textarea.value;
+      textarea.value = 'Loading content from URL...';
+      textarea.disabled = true;
+
+      try {
+        const jinaUrl = 'https://r.jina.ai/' + url;
+        const response = await fetch(jinaUrl);
+
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const content = await response.text();
+        textarea.value = content;
+        saveState();
+      } catch (error) {
+        console.error('Failed to fetch URL:', error);
+        textarea.value = originalText;
+        alert('Failed to load URL: ' + error.message);
+      } finally {
+        textarea.disabled = false;
+      }
+    }
+  }, 10);
+});
+
 // Tab handling
 document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => {
   const wasReaderActive = document.getElementById('reader').classList.contains('active');
