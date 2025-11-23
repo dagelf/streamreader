@@ -75,7 +75,12 @@
       <input type="checkbox" id="removeStops">
       <label for="removeStops">Hide stop words</label>
     </div>
-    
+
+    <div class="checkbox">
+      <input type="checkbox" id="deleteStops">
+      <label for="deleteStops">Remove stop words</label>
+    </div>
+
     <label>WPM: <span id="wpmValue">350</span></label>
     <input type="range" id="speed" min="50" max="5000" step="50" value="350">
   </div>
@@ -525,6 +530,7 @@ const restartBtn = document.getElementById('restart');
 const speedSlider = document.getElementById('speed');
 const wpmDisplay = document.getElementById('wpmValue');
 const removeStopsCheckbox = document.getElementById('removeStops');
+const deleteStopsCheckbox = document.getElementById('deleteStops');
 
 let displayQueue = [];  // array of {text: string, type: 'word'|'space'|'newline'|'removed'}
 let index = 0;
@@ -541,6 +547,7 @@ function restoreState() {
       speedSlider.value = state.wpm || 350;
       wpmDisplay.textContent = speedSlider.value;
       removeStopsCheckbox.checked = state.removeStops || false;
+      deleteStopsCheckbox.checked = state.deleteStops || false;
 
       if (state.text && state.index >= 0) {
         buildDisplayQueue();
@@ -564,7 +571,8 @@ function saveState() {
       text: textarea.value,
       index: index,
       wpm: speedSlider.value,
-      removeStops: removeStopsCheckbox.checked
+      removeStops: removeStopsCheckbox.checked,
+      deleteStops: deleteStopsCheckbox.checked
     }));
   } catch (e) {
     console.error('Failed to save state:', e);
@@ -721,7 +729,10 @@ function buildDisplayQueue() {
           const clean = word.toLowerCase();
           const isStop = STOP_WORDS.has(clean);
 
-          if (removeStopsCheckbox.checked && isStop && clean) {
+          // Skip stop words entirely if deleteStops is checked
+          if (deleteStopsCheckbox.checked && isStop && clean) {
+            // Don't add to queue at all
+          } else if (removeStopsCheckbox.checked && isStop && clean) {
             displayQueue.push({text: word, type: 'removed'});
           } else {
             // Context-aware verb detection: exclude verbs after "the", "a", "an" unless whitelisted
@@ -742,7 +753,10 @@ function buildDisplayQueue() {
           const clean = token.toLowerCase().replace(/[^a-z]/g, '');
           const isStop = STOP_WORDS.has(clean);
 
-          if (removeStopsCheckbox.checked && isStop && clean) {
+          // Skip stop words entirely if deleteStops is checked
+          if (deleteStopsCheckbox.checked && isStop && clean) {
+            // Don't add to queue at all
+          } else if (removeStopsCheckbox.checked && isStop && clean) {
             displayQueue.push({text: token, type: 'removed'});
           } else {
             // Context-aware verb detection
@@ -899,6 +913,13 @@ speedSlider.addEventListener('input', () => {
 });
 
 removeStopsCheckbox.addEventListener('change', () => {
+  if (document.getElementById('reader').classList.contains('active')) {
+    buildDisplayQueue();
+    restartBtn.click();
+  }
+});
+
+deleteStopsCheckbox.addEventListener('change', () => {
   if (document.getElementById('reader').classList.contains('active')) {
     buildDisplayQueue();
     restartBtn.click();
