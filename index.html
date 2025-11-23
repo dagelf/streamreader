@@ -643,6 +643,7 @@ function buildDisplayQueue() {
   const lines = text.split('\n');
   displayQueue = [];
   mdContext = [];
+  let inList = false;
 
   for (let i = 0; i < lines.length; i++) {
     let line = lines[i];
@@ -677,9 +678,25 @@ function buildDisplayQueue() {
     } else if (line.match(/^[\*\-] /)) {
       line = line.replace(/^[\*\-] /, '');
       lineType = 'li';
+      // Start list if not already in one
+      if (!inList) {
+        displayQueue.push({text: '<ul>', type: 'md-open', tag: 'ul'});
+        inList = true;
+      }
     } else if (line.match(/^\d+\. /)) {
       line = line.replace(/^\d+\. /, '');
       lineType = 'li';
+      // Start list if not already in one
+      if (!inList) {
+        displayQueue.push({text: '<ul>', type: 'md-open', tag: 'ul'});
+        inList = true;
+      }
+    } else {
+      // Not a list item - close list if open
+      if (inList) {
+        displayQueue.push({text: '</ul>', type: 'md-close', tag: 'ul'});
+        inList = false;
+      }
     }
 
     // Add opening tag if needed
@@ -851,6 +868,11 @@ function buildDisplayQueue() {
     if (i < lines.length - 1) {
       displayQueue.push({text: '\n', type: 'newline'});
     }
+  }
+
+  // Close list if still open at end
+  if (inList) {
+    displayQueue.push({text: '</ul>', type: 'md-close', tag: 'ul'});
   }
 }
 
