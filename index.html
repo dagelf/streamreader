@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Streaming Reader • Verb Highlight + Smart Space Preservation</title>
+<style>
+  body { margin:0; height:100vh; display:flex; flex-direction:column; background:#0d0d0d; color:#eee; font-family:system-ui,sans-serif; }
+  .tabs { display:flex; background:#1a1a1a; border-bottom:1px solid #333; }
+  .tab { padding:1rem 2.5rem; cursor:pointer; user-select:none; font-weight:600; }
+  .tab.active { background:#0f0; color:#000; }
+  .pane { display:none; flex:1; overflow:hidden; }
+  .pane.active { display:flex; flex-direction:column; }
+  
+  textarea, #readerText {
+    flex:1; width:100%; padding:2rem; font-size:1.15rem; line-height:1.7; 
+    background:#111; color:#ddd; border:none; resize:none; outline:none;
+    font-family: inherit;
+  }
+  textarea { background:#222; }
+  
+  .controls {
+    padding:1rem 2rem; background:#1a1a1a; display:flex; gap:2rem; align-items:center; flex-wrap:wrap;
+    border-bottom:1px solid #333;
+  }
+  button { padding:0.9rem 2rem; font-size:1rem; background:#0f0; color:#000; border:none; border-radius:8px; cursor:pointer; font-weight:bold; }
+  button:hover { background:#3f3; }
+  label { font-size:1.1rem; white-space:nowrap; }
+  #wpmValue { min-width:60px; font-weight:bold; color:#0f0; }
+  input[type=range] { flex:1; max-width:500px; height:8px; }
+  .checkbox { display:flex; align-items:center; gap:0.5rem; white-space:nowrap; cursor:pointer; user-select:none; }
+  .checkbox input { transform:scale(1.3); cursor:pointer; }
+  
+  /* Visual treatment */
+  #readerText { color:#bbb; }               /* all text slightly darker */
+  #readerText .verb { color:#fff; font-weight:600; }   /* verbs pop */
+  #readerText .removed { opacity:0.15; }    /* placeholder for removed stop words */
+</style>
+</head>
+<body>
+
+<div class="tabs">
+  <div class="tab active" data-tab="input">1. Paste Text</div>
+  <div class="tab" data-tab="reader">2. Streaming Reader</div>
+</div>
+
+<div id="input" class="pane active">
+  <textarea placeholder="Paste your text here…"></textarea>
+</div>
+
+<div id="reader" class="pane">
+  <div class="controls">
+    <button id="restart">Restart</button>
+    
+    <div class="checkbox">
+      <input type="checkbox" id="removeStops">
+      <label for="removeStops">Remove stop words (keep spacing)</label>
+    </div>
+    
+    <label>WPM: <span id="wpmValue">350</span></label>
+    <input type="range" id="speed" min="50" max="1500" step="10" value="350">
+  </div>
+  <div id="readerText">—</div>
+</div>
+
+<script>
+// Comprehensive stop words + very simple verb detection (good enough for English)
+const STOP_WORDS = new Set([
+  "a","an","and","are","as","at","be","by","for","from","has","he","in","is","it","its","of","on","that","the","to",
+  "was","will","with","i","you","this","but","not","have","had","his","her","they","we","or","if","would","could",
+  "should","all","there","when","what","who","which","how","where","why","do","does","did","been","their","them",
+  "our","your","my","me","us","him","she","one","two","three","four","five","six","seven","eight","nine","ten",
+  "no","yes","so","very","just","can","out","up","down","over","under","again","further","then","once","here",
+  "there","when","where","why","how","both","each","few","more","most","other","some","such","only","own","same",
+  "than","too","very","s","t","can","will","just","don","should","now","also","into","any","these","those","about"
+]);
+
+// Very lightweight verb heuristic – catches most common forms
+function isLikelyVerb(word) {
+  const w = word.toLowerCase().replace(/[^a-z]/g,'');
+  if (w.length < 2) return false;
+  return (
+    w.endsWith('ing') ||
+    w.endsWith('ed') ||
+    w.endsWith('es') ||
+    w.endsWith('s') && !w.endsWith('ss') ||
+    ['go','do','have','be','say','get','make','know','think','take','see','come','want','use','find','give','tell','work','call','try','ask','need','feel','become','leave','put','mean','keep','let','begin','seem','help','show','hear','play','run','move','live','believe','bring','happen','write','sit','stand','lose','pay','meet','include','continue','set','learn','change','lead','understand','watch','follow','stop','create','speak','read','spend','grow','open','walk','win','offer','remember','love','consider','appear','buy','wait','serve','die','send','expect','build','stay','fall','cut','reach','kill','remain'].includes(w)
+  );
+}
+
+const textarea = document.querySelector('textarea');
+const readerText = document.getElementById('readerText');
+const restartBtn = document.getElementById('restart');
+const speedSlider = document.getElementById('speed');
+const wpmDisplay = document.getElementById('wpmValue');
+const removeStopsCheckbox = document.getElementById('removeStops');
+
+let displayQueue = [];  // array of {text: string, type: 'word'|'space'|'newline'|'removed'}
+let index = 0;
+let timer = null;
+
+function buildDisplayQueue() {
+  const text = textarea.value || '';
+  const rawTokens = text.split(/(\s+)/); // keeps spaces as tokens
+  displayQueue = [];
+  
+  for (let token of rawTokens) {
+    if (!token.trim()) {
+      // pure whitespace
+      if (token.includes('\n')) displayQueue.push({text: '\n', type: 'newline'});
+      else if (token) displayQueue.push({text: ' ', type: 'space'});
+      continue;
+    }
+
+    const clean = token.toLowerCase().replace(/[^a-z]/g, '');
+    const isStop = STOP_WORDS.has(clean);
+
+    if (removeStopsCheckbox.checked && isStop && clean) {
+      // keep spacing but visually ghost the stop word
+      displayQueue.push({text: token, type: 'removed'});
+    } else {
+      // normal word
+      const type = isLikelyVerb(token) ? 'verb' : 'word';
+      displayQueue.push({text: token, type});
+    }
+  }
+}
+
+function msPerWord() {
+  return 60000 / parseInt(speedSlider.value, 10);
+}
+
+function startStreaming() {
+  clearInterval(timer);
+  timer = null;
+  readerText.innerHTML = '';
+  index = 0;
+
+  if (displayQueue.length === 0) {
+    readerText.textContent = '(no text)';
+    return;
+  }
+
+  displayNext();
+  timer = setInterval(displayNext, msPerWord());
+}
+
+function displayNext() {
+  if (index >= displayQueue.length) {
+    clearInterval(timer);
+    timer = null;
+    return;
+  }
+
+  const item = displayQueue[index];
+  const span = document.createElement('span');
+
+  if (item.type === 'newline') {
+    readerText.appendChild(document.createElement('br'));
+  } else if (item.type === 'space') {
+    readerText.appendChild(document.createTextNode(' '));
+  } else {
+    span.textContent = item.text;
+    if (item.type === 'verb') span.className = 'verb';
+    if (item.type === 'removed') span.className = 'removed';
+    readerText.appendChild(span);
+  }
+
+  index++;
+  readerText.scrollTop = readerText.scrollHeight;
+}
+
+// Controls
+speedSlider.addEventListener('input', () => {
+  wpmDisplay.textContent = speedSlider.value;
+  if (timer) {
+    clearInterval(timer);
+    timer = setInterval(displayNext, msPerWord());
+  }
+});
+
+removeStopsCheckbox.addEventListener('change', () => {
+  if (document.getElementById('reader').classList.contains('active')) {
+    buildDisplayQueue();
+    restartBtn.click();
+  }
+});
+
+restartBtn.addEventListener('click', () => {
+  buildDisplayQueue();
+  startStreaming();
+});
+
+textarea.addEventListener('input', () => {
+  if (document.getElementById('reader').classList.contains('active')) {
+    buildDisplayQueue();
+    startStreaming();
+  }
+});
+
+// Tab handling
+document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => {
+  document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
+  document.querySelectorAll('.pane').forEach(pane => pane.classList.remove('active'));
+  t.classList.add('active');
+  document.getElementById(t.dataset.tab).classList.add('active');
+  
+  if (t.dataset.tab === 'reader') {
+    buildDisplayQueue();
+    startStreaming();
+  }
+}));
+
+// Init
+wpmDisplay.textContent = speedSlider.value;
+</script>
+</body>
+</html>
