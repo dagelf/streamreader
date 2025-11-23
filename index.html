@@ -50,8 +50,9 @@
   #readerText code { background:#222; padding:0.2em 0.4em; border-radius:3px; font-family:monospace; color:#f80; }
   #readerText a { color:#0ff; text-decoration:underline; }
   #readerText blockquote { border-left:3px solid #0f0; padding-left:1em; margin:1em 0; opacity:0.8; }
-  #readerText ul, #readerText ol { margin:0.5em 0; padding-left:0; list-style-position:inside; }
+  #readerText ul, #readerText ol { margin:0.5em 0; padding-left:0; list-style:none; }
   #readerText li { margin:0.25em 0; }
+  #readerText li::before { content:"• "; color:#0f0; margin-right:0.5em; }
   #readerText hr { border:none; border-top:2px solid #333; margin:2em 0; }
 </style>
 </head>
@@ -72,11 +73,11 @@
     
     <div class="checkbox">
       <input type="checkbox" id="removeStops">
-      <label for="removeStops">Remove stop words (keep spacing)</label>
+      <label for="removeStops">Hide stop words</label>
     </div>
     
     <label>WPM: <span id="wpmValue">350</span></label>
-    <input type="range" id="speed" min="50" max="1500" step="10" value="350">
+    <input type="range" id="speed" min="50" max="5000" step="50" value="350">
   </div>
   <div id="readerText">—</div>
 </div>
@@ -528,6 +529,47 @@ const removeStopsCheckbox = document.getElementById('removeStops');
 let displayQueue = [];  // array of {text: string, type: 'word'|'space'|'newline'|'removed'}
 let index = 0;
 let timer = null;
+let isPaused = false;
+
+// Restore state from localStorage
+function restoreState() {
+  const saved = localStorage.getItem('readerState');
+  if (saved) {
+    try {
+      const state = JSON.parse(saved);
+      textarea.value = state.text || '';
+      speedSlider.value = state.wpm || 350;
+      wpmDisplay.textContent = speedSlider.value;
+      removeStopsCheckbox.checked = state.removeStops || false;
+
+      if (state.text && state.index >= 0) {
+        buildDisplayQueue();
+        index = state.index;
+        // Rebuild display up to saved position
+        for (let i = 0; i < index && i < displayQueue.length; i++) {
+          displayNext();
+        }
+        isPaused = true;
+      }
+    } catch (e) {
+      console.error('Failed to restore state:', e);
+    }
+  }
+}
+
+// Save state to localStorage
+function saveState() {
+  try {
+    localStorage.setItem('readerState', JSON.stringify({
+      text: textarea.value,
+      index: index,
+      wpm: speedSlider.value,
+      removeStops: removeStopsCheckbox.checked
+    }));
+  } catch (e) {
+    console.error('Failed to save state:', e);
+  }
+}
 
 // Track current markdown context
 let mdContext = [];
@@ -739,20 +781,34 @@ function msPerWord() {
 function startStreaming() {
   clearInterval(timer);
   timer = null;
-  readerText.innerHTML = '';
-  index = 0;
+
+  // Only reset if not paused
+  if (!isPaused) {
+    readerText.innerHTML = '';
+    index = 0;
+    currentContainer = null;
+    lastWasSpace = false;
+  }
 
   if (displayQueue.length === 0) {
     readerText.textContent = '(no text)';
     return;
   }
 
+  isPaused = false;
   displayNext();
   timer = setInterval(displayNext, msPerWord());
 }
 
 let currentContainer = null;
 let lastWasSpace = false;
+let userHasScrolled = false;
+
+// Detect manual scrolling
+readerText.addEventListener('scroll', () => {
+  const atBottom = readerText.scrollHeight - readerText.scrollTop <= readerText.clientHeight + 50;
+  userHasScrolled = !atBottom;
+});
 
 function displayNext() {
   if (index >= displayQueue.length) {
@@ -823,7 +879,14 @@ function displayNext() {
   }
 
   index++;
-  readerText.scrollTop = readerText.scrollHeight;
+
+  // Only auto-scroll if user hasn't manually scrolled up
+  if (!userHasScrolled) {
+    readerText.scrollTop = readerText.scrollHeight;
+  }
+
+  // Save state after each word
+  saveState();
 }
 
 // Controls
@@ -843,31 +906,53 @@ removeStopsCheckbox.addEventListener('change', () => {
 });
 
 restartBtn.addEventListener('click', () => {
+  isPaused = false;
   buildDisplayQueue();
   startStreaming();
+  saveState();
 });
 
 textarea.addEventListener('input', () => {
-  if (document.getElementById('reader').classList.contains('active')) {
-    buildDisplayQueue();
-    startStreaming();
-  }
+  saveState();
 });
 
 // Tab handling
 document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => {
+  const wasReaderActive = document.getElementById('reader').classList.contains('active');
+
   document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
   document.querySelectorAll('.pane').forEach(pane => pane.classList.remove('active'));
   t.classList.add('active');
   document.getElementById(t.dataset.tab).classList.add('active');
-  
+
   if (t.dataset.tab === 'reader') {
-    buildDisplayQueue();
-    startStreaming();
+    // Only rebuild if coming from input tab or if no queue exists
+    if (!wasReaderActive || displayQueue.length === 0) {
+      buildDisplayQueue();
+      if (!isPaused) {
+        startStreaming();
+      }
+    } else {
+      // Resume if was streaming
+      if (timer) {
+        // Already streaming, do nothing
+      } else if (index < displayQueue.length) {
+        // Was paused mid-stream, resume
+        startStreaming();
+      }
+    }
+  } else {
+    // Pause streaming when leaving reader tab
+    if (timer) {
+      clearInterval(timer);
+      timer = null;
+      isPaused = true;
+    }
   }
 }));
 
 // Init
+restoreState();
 wpmDisplay.textContent = speedSlider.value;
 </script>
 </body>
