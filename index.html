@@ -529,6 +529,12 @@ let timer = null;
 // Track current markdown context
 let mdContext = [];
 
+// Very few verbs can follow "the" - mostly auxiliary/modal verbs used as nouns
+const VERBS_AFTER_THE = new Set([
+  'following', 'remaining', 'living', 'dead', 'dying', 'missing', 'wounded', 'injured',
+  'accused', 'deceased', 'departed', 'fallen', 'elected', 'chosen', 'selected'
+]);
+
 function buildDisplayQueue() {
   const text = textarea.value || '';
   const lines = text.split('\n');
@@ -635,17 +641,25 @@ function buildDisplayQueue() {
       }
 
       const rawTokens = part.text.split(/(\s+)/);
+      let lastWord = '';
+
       for (let token of rawTokens) {
         if (!token.trim()) {
           if (token) displayQueue.push({text: ' ', type: 'space'});
           continue;
         }
 
-        // Separate word from trailing punctuation
-        const match = token.match(/^([a-zA-Z]+)([.,;:!?"']+)$/);
+        // Separate word from surrounding punctuation (both leading and trailing)
+        const match = token.match(/^([.,;:!?"'()\[\]{}]+)?([a-zA-Z]+)([.,;:!?"'()\[\]{}]+)?$/);
         if (match) {
-          const word = match[1];
-          const punct = match[2];
+          const leadPunct = match[1];
+          const word = match[2];
+          const trailPunct = match[3];
+
+          // Add leading punctuation if exists
+          if (leadPunct) {
+            displayQueue.push({text: leadPunct, type: 'punct'});
+          }
 
           const clean = word.toLowerCase();
           const isStop = STOP_WORDS.has(clean);
@@ -653,10 +667,20 @@ function buildDisplayQueue() {
           if (removeStopsCheckbox.checked && isStop && clean) {
             displayQueue.push({text: word, type: 'removed'});
           } else {
-            const type = isLikelyVerb(word) ? 'verb' : 'word';
+            // Context-aware verb detection: exclude verbs after "the", "a", "an" unless whitelisted
+            const followsArticle = ['the', 'a', 'an'].includes(lastWord);
+            const isVerb = isLikelyVerb(word);
+            const canFollowArticle = VERBS_AFTER_THE.has(clean);
+            const type = (isVerb && (!followsArticle || canFollowArticle)) ? 'verb' : 'word';
             displayQueue.push({text: word, type});
           }
-          displayQueue.push({text: punct, type: 'punct'});
+
+          // Add trailing punctuation if exists
+          if (trailPunct) {
+            displayQueue.push({text: trailPunct, type: 'punct'});
+          }
+
+          lastWord = clean;
         } else {
           const clean = token.toLowerCase().replace(/[^a-z]/g, '');
           const isStop = STOP_WORDS.has(clean);
@@ -664,9 +688,15 @@ function buildDisplayQueue() {
           if (removeStopsCheckbox.checked && isStop && clean) {
             displayQueue.push({text: token, type: 'removed'});
           } else {
-            const type = isLikelyVerb(token) ? 'verb' : 'word';
+            // Context-aware verb detection
+            const followsArticle = ['the', 'a', 'an'].includes(lastWord);
+            const isVerb = isLikelyVerb(token);
+            const canFollowArticle = VERBS_AFTER_THE.has(clean);
+            const type = (isVerb && (!followsArticle || canFollowArticle)) ? 'verb' : 'word';
             displayQueue.push({text: token, type});
           }
+
+          lastWord = clean;
         }
       }
 
@@ -707,12 +737,14 @@ function startStreaming() {
 }
 
 let currentContainer = null;
+let lastWasSpace = false;
 
 function displayNext() {
   if (index >= displayQueue.length) {
     clearInterval(timer);
     timer = null;
     currentContainer = null;
+    lastWasSpace = false;
     return;
   }
 
@@ -721,37 +753,40 @@ function displayNext() {
   if (item.type === 'newline') {
     readerText.appendChild(document.createElement('br'));
     currentContainer = null;
+    lastWasSpace = false;
   } else if (item.type === 'space') {
-    const target = currentContainer || readerText;
-    target.appendChild(document.createTextNode(' '));
+    // Prevent double spacing
+    if (!lastWasSpace) {
+      const target = currentContainer || readerText;
+      target.appendChild(document.createTextNode(' '));
+      lastWasSpace = true;
+    }
   } else if (item.type === 'md-open') {
     // Create and append the opening tag element
     const temp = document.createElement('div');
     temp.innerHTML = item.text;
     const element = temp.firstChild;
     if (element) {
-      if (currentContainer) {
-        currentContainer.appendChild(element);
-      } else {
-        readerText.appendChild(element);
-      }
-      // Block-level tags become the new container
-      if (['H1','H2','H3','BLOCKQUOTE','LI'].includes(element.tagName)) {
-        currentContainer = element;
-      } else {
-        // Inline tags - keep track but don't change container
-        currentContainer = element;
-      }
+      const parent = currentContainer || readerText;
+      parent.appendChild(element);
+
+      // Set as current container
+      currentContainer = element;
     }
+    lastWasSpace = false;
   } else if (item.type === 'md-close') {
-    // Close the current container
+    // Close the current container and move back to parent
     if (currentContainer && currentContainer.tagName.toLowerCase() === item.tag) {
-      currentContainer = currentContainer.parentElement === readerText ? null : currentContainer.parentElement;
+      // Reset to parent or null
+      const parent = currentContainer.parentElement;
+      currentContainer = (parent === readerText) ? null : parent;
     }
+    lastWasSpace = false;
   } else if (item.type === 'punct') {
     // Punctuation - append as plain text
     const target = currentContainer || readerText;
     target.appendChild(document.createTextNode(item.text));
+    lastWasSpace = false;
   } else {
     // Regular word or verb
     const span = document.createElement('span');
@@ -762,6 +797,7 @@ function displayNext() {
 
     const target = currentContainer || readerText;
     target.appendChild(span);
+    lastWasSpace = false;
   }
 
   index++;
