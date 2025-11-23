@@ -70,9 +70,9 @@
   #readerText code { background:#222; padding:0.2em 0.4em; border-radius:3px; font-family:monospace; color:#f80; }
   #readerText a { color:#0ff; text-decoration:underline; }
   #readerText blockquote { border-left:3px solid #0f0; padding-left:1em; margin:1em 0; opacity:0.8; }
-  #readerText ul, #readerText ol { margin:0.5em 0; padding-left:4em; list-style:none; }
-  #readerText li { margin:0.25em 0; text-indent:-1.5em; padding-left:1.5em; }
-  #readerText li::before { content:"• "; color:#0f0; }
+  #readerText ul, #readerText ol { margin:0.5em 0; padding-left:0; list-style:none; }
+  #readerText li { margin:0.25em 0; margin-left:3em; }
+  #readerText li::before { content:"• "; color:#0f0; margin-right:0.5em; }
   #readerText hr { border:none; border-top:2px solid #333; margin:2em 0; }
 </style>
 </head>
@@ -346,6 +346,9 @@ const VERB_FORMS = {
   'drives':'drive','drove':'drive','driven':'drive','driving':'drive','drive':'drive',
   'drinks':'drink','drank':'drink','drunk':'drink','drinking':'drink','drink':'drink',
   'flies':'fly','flew':'fly','flown':'fly','flying':'fly','fly':'fly',
+  'bribes':'bribe','bribed':'bribe','bribing':'bribe','bribe':'bribe',
+  'threatens':'threaten','threatened':'threaten','threatening':'threaten','threaten':'threaten',
+  'glosses':'gloss','glossed':'gloss','glossing':'gloss','gloss':'gloss',
   'lies':'lie','lay':'lie','lain':'lie','lying':'lie','lie':'lie',
   'rises':'rise','rose':'rise','risen':'rise','rising':'rise','rise':'rise',
   'throws':'throw','threw':'throw','thrown':'throw','throwing':'throw','throw':'throw',
@@ -624,7 +627,15 @@ let mdContext = [];
 // Very few verbs can follow "the" - mostly auxiliary/modal verbs used as nouns
 const VERBS_AFTER_THE = new Set([
   'following', 'remaining', 'living', 'dead', 'dying', 'missing', 'wounded', 'injured',
-  'accused', 'deceased', 'departed', 'fallen', 'elected', 'chosen', 'selected'
+  'accused', 'deceased', 'departed', 'fallen', 'elected', 'chosen', 'selected', 'following'
+]);
+
+// Common non-verbs that follow "to" (to avoid false positives)
+const NON_VERBS_AFTER_TO = new Set([
+  'day', 'night', 'town', 'school', 'work', 'home', 'bed', 'church', 'court', 'war',
+  'market', 'hell', 'heaven', 'death', 'life', 'me', 'you', 'him', 'her', 'them', 'us',
+  'it', 'this', 'that', 'these', 'those', 'each', 'every', 'all', 'some', 'any', 'no',
+  'none', 'one', 'side', 'top', 'bottom', 'left', 'right', 'north', 'south', 'east', 'west'
 ]);
 
 function buildDisplayQueue() {
@@ -772,11 +783,21 @@ function buildDisplayQueue() {
             // Mark as stop word, CSS will handle visibility
             displayQueue.push({text: word, type: 'stop'});
           } else {
-            // Context-aware verb detection: exclude verbs after "the", "a", "an" unless whitelisted
+            // Context-aware verb detection
             const followsArticle = ['the', 'a', 'an'].includes(lastWord);
+            const followsTo = lastWord === 'to';
             const isVerb = isLikelyVerb(word);
             const canFollowArticle = VERBS_AFTER_THE.has(clean);
-            const type = (isVerb && (!followsArticle || canFollowArticle)) ? 'verb' : 'word';
+            const isNonVerbAfterTo = NON_VERBS_AFTER_TO.has(clean);
+
+            let type = 'word';
+            if (followsTo && !isNonVerbAfterTo) {
+              // After "to", assume verb unless it's a known non-verb
+              type = 'verb';
+            } else if (isVerb && (!followsArticle || canFollowArticle)) {
+              // Regular verb detection, excluding verbs after articles
+              type = 'verb';
+            }
             displayQueue.push({text: word, type});
           }
 
@@ -796,9 +817,19 @@ function buildDisplayQueue() {
           } else {
             // Context-aware verb detection
             const followsArticle = ['the', 'a', 'an'].includes(lastWord);
+            const followsTo = lastWord === 'to';
             const isVerb = isLikelyVerb(token);
             const canFollowArticle = VERBS_AFTER_THE.has(clean);
-            const type = (isVerb && (!followsArticle || canFollowArticle)) ? 'verb' : 'word';
+            const isNonVerbAfterTo = NON_VERBS_AFTER_TO.has(clean);
+
+            let type = 'word';
+            if (followsTo && !isNonVerbAfterTo) {
+              // After "to", assume verb unless it's a known non-verb
+              type = 'verb';
+            } else if (isVerb && (!followsArticle || canFollowArticle)) {
+              // Regular verb detection, excluding verbs after articles
+              type = 'verb';
+            }
             displayQueue.push({text: token, type});
           }
 
