@@ -37,7 +37,26 @@
   /* Visual treatment */
   #readerText { color:#bbb; }               /* all text slightly darker */
   #readerText .verb { color:#fff; font-weight:600; }   /* verbs pop - semi-bold */
-  #readerText .removed { opacity:0.15; }    /* placeholder for removed stop words */
+  #readerText .stop { color:#bbb; }         /* stop words default */
+
+  /* Stop word visibility modes */
+  body.hide-stops .stop { opacity:0.15; }
+  body.remove-stops .stop { display:none; }
+
+  /* No colorize mode - everything is white */
+  body.no-colorize #readerText,
+  body.no-colorize #readerText .verb,
+  body.no-colorize #readerText .stop,
+  body.no-colorize #readerText strong,
+  body.no-colorize #readerText strong .verb,
+  body.no-colorize #readerText em,
+  body.no-colorize #readerText code,
+  body.no-colorize #readerText a,
+  body.no-colorize #readerText h1,
+  body.no-colorize #readerText h2,
+  body.no-colorize #readerText h3,
+  body.no-colorize #readerText h4 { color:#fff !important; font-weight:normal !important; }
+  body.no-colorize #readerText li::before { color:#fff !important; }
 
   /* Markdown styles */
   #readerText h1 { font-size:2em; font-weight:bold; margin:1em 0 0.5em; color:#fff; }
@@ -50,7 +69,7 @@
   #readerText code { background:#222; padding:0.2em 0.4em; border-radius:3px; font-family:monospace; color:#f80; }
   #readerText a { color:#0ff; text-decoration:underline; }
   #readerText blockquote { border-left:3px solid #0f0; padding-left:1em; margin:1em 0; opacity:0.8; }
-  #readerText ul, #readerText ol { margin:0.5em 0; padding-left:0; list-style:none; }
+  #readerText ul, #readerText ol { margin:0.5em 0; padding-left:2em; list-style:none; }
   #readerText li { margin:0.25em 0; }
   #readerText li::before { content:"• "; color:#0f0; margin-right:0.5em; }
   #readerText hr { border:none; border-top:2px solid #333; margin:2em 0; }
@@ -79,6 +98,11 @@
     <div class="checkbox">
       <input type="checkbox" id="deleteStops">
       <label for="deleteStops">Remove stop words</label>
+    </div>
+
+    <div class="checkbox">
+      <input type="checkbox" id="colorize" checked>
+      <label for="colorize">Colorize</label>
     </div>
 
     <label>WPM: <span id="wpmValue">350</span></label>
@@ -531,6 +555,7 @@ const speedSlider = document.getElementById('speed');
 const wpmDisplay = document.getElementById('wpmValue');
 const removeStopsCheckbox = document.getElementById('removeStops');
 const deleteStopsCheckbox = document.getElementById('deleteStops');
+const colorizeCheckbox = document.getElementById('colorize');
 
 let displayQueue = [];  // array of {text: string, type: 'word'|'space'|'newline'|'removed'}
 let index = 0;
@@ -548,6 +573,18 @@ function restoreState() {
       wpmDisplay.textContent = speedSlider.value;
       removeStopsCheckbox.checked = state.removeStops || false;
       deleteStopsCheckbox.checked = state.deleteStops || false;
+      colorizeCheckbox.checked = state.colorize !== undefined ? state.colorize : true;
+
+      // Apply CSS classes based on state
+      if (removeStopsCheckbox.checked) {
+        document.body.classList.add('hide-stops');
+      }
+      if (deleteStopsCheckbox.checked) {
+        document.body.classList.add('remove-stops');
+      }
+      if (!colorizeCheckbox.checked) {
+        document.body.classList.add('no-colorize');
+      }
 
       if (state.text && state.index >= 0) {
         buildDisplayQueue();
@@ -572,7 +609,8 @@ function saveState() {
       index: index,
       wpm: speedSlider.value,
       removeStops: removeStopsCheckbox.checked,
-      deleteStops: deleteStopsCheckbox.checked
+      deleteStops: deleteStopsCheckbox.checked,
+      colorize: colorizeCheckbox.checked
     }));
   } catch (e) {
     console.error('Failed to save state:', e);
@@ -729,11 +767,9 @@ function buildDisplayQueue() {
           const clean = word.toLowerCase();
           const isStop = STOP_WORDS.has(clean);
 
-          // Skip stop words entirely if deleteStops is checked
-          if (deleteStopsCheckbox.checked && isStop && clean) {
-            // Don't add to queue at all
-          } else if (removeStopsCheckbox.checked && isStop && clean) {
-            displayQueue.push({text: word, type: 'removed'});
+          if (isStop && clean) {
+            // Mark as stop word, CSS will handle visibility
+            displayQueue.push({text: word, type: 'stop'});
           } else {
             // Context-aware verb detection: exclude verbs after "the", "a", "an" unless whitelisted
             const followsArticle = ['the', 'a', 'an'].includes(lastWord);
@@ -753,11 +789,9 @@ function buildDisplayQueue() {
           const clean = token.toLowerCase().replace(/[^a-z]/g, '');
           const isStop = STOP_WORDS.has(clean);
 
-          // Skip stop words entirely if deleteStops is checked
-          if (deleteStopsCheckbox.checked && isStop && clean) {
-            // Don't add to queue at all
-          } else if (removeStopsCheckbox.checked && isStop && clean) {
-            displayQueue.push({text: token, type: 'removed'});
+          if (isStop && clean) {
+            // Mark as stop word, CSS will handle visibility
+            displayQueue.push({text: token, type: 'stop'});
           } else {
             // Context-aware verb detection
             const followsArticle = ['the', 'a', 'an'].includes(lastWord);
@@ -880,12 +914,12 @@ function displayNext() {
     target.appendChild(document.createTextNode(item.text));
     lastWasSpace = false;
   } else {
-    // Regular word or verb
+    // Regular word, verb, or stop word
     const span = document.createElement('span');
     span.textContent = item.text;
 
     if (item.type === 'verb') span.className = 'verb';
-    if (item.type === 'removed') span.className = 'removed';
+    if (item.type === 'stop') span.className = 'stop';
 
     const target = currentContainer || readerText;
     target.appendChild(span);
@@ -913,17 +947,34 @@ speedSlider.addEventListener('input', () => {
 });
 
 removeStopsCheckbox.addEventListener('change', () => {
-  if (document.getElementById('reader').classList.contains('active')) {
-    buildDisplayQueue();
-    restartBtn.click();
+  if (removeStopsCheckbox.checked) {
+    document.body.classList.add('hide-stops');
+    deleteStopsCheckbox.checked = false;
+    document.body.classList.remove('remove-stops');
+  } else {
+    document.body.classList.remove('hide-stops');
   }
+  saveState();
 });
 
 deleteStopsCheckbox.addEventListener('change', () => {
-  if (document.getElementById('reader').classList.contains('active')) {
-    buildDisplayQueue();
-    restartBtn.click();
+  if (deleteStopsCheckbox.checked) {
+    document.body.classList.add('remove-stops');
+    removeStopsCheckbox.checked = false;
+    document.body.classList.remove('hide-stops');
+  } else {
+    document.body.classList.remove('remove-stops');
   }
+  saveState();
+});
+
+colorizeCheckbox.addEventListener('change', () => {
+  if (colorizeCheckbox.checked) {
+    document.body.classList.remove('no-colorize');
+  } else {
+    document.body.classList.add('no-colorize');
+  }
+  saveState();
 });
 
 restartBtn.addEventListener('click', () => {
