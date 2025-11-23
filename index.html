@@ -12,9 +12,13 @@
   .pane.active { display:flex; flex-direction:column; }
   
   textarea, #readerText {
-    flex:1; width:100%; padding:2rem; font-size:1.15rem; line-height:1.7; 
+    flex:1; width:100%; padding:2rem; font-size:1.15rem; line-height:1.7;
     background:#111; color:#ddd; border:none; resize:none; outline:none;
     font-family: inherit;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    white-space: pre-wrap;
+    overflow-y: auto;
   }
   textarea { background:#222; }
   
@@ -34,6 +38,18 @@
   #readerText { color:#bbb; }               /* all text slightly darker */
   #readerText .verb { color:#fff; font-weight:600; }   /* verbs pop */
   #readerText .removed { opacity:0.15; }    /* placeholder for removed stop words */
+
+  /* Markdown styles */
+  #readerText h1 { font-size:2em; font-weight:bold; margin:1em 0 0.5em; color:#fff; }
+  #readerText h2 { font-size:1.5em; font-weight:bold; margin:1em 0 0.5em; color:#fff; }
+  #readerText h3 { font-size:1.17em; font-weight:bold; margin:1em 0 0.5em; color:#fff; }
+  #readerText strong { font-weight:bold; color:#fff; }
+  #readerText em { font-style:italic; }
+  #readerText code { background:#222; padding:0.2em 0.4em; border-radius:3px; font-family:monospace; color:#0f0; }
+  #readerText a { color:#0f0; text-decoration:underline; }
+  #readerText blockquote { border-left:3px solid #0f0; padding-left:1em; margin:1em 0; opacity:0.8; }
+  #readerText ul, #readerText ol { margin:0.5em 0; padding-left:2em; }
+  #readerText li { margin:0.25em 0; }
 </style>
 </head>
 <body>
@@ -74,17 +90,429 @@ const STOP_WORDS = new Set([
   "than","too","very","s","t","can","will","just","don","should","now","also","into","any","these","those","about"
 ]);
 
-// Very lightweight verb heuristic – catches most common forms
+// Comprehensive verb dictionary with all forms mapped to base
+// This covers ~1000+ common English verbs with irregular forms
+const VERB_FORMS = {
+  // Irregular verbs with all forms
+  'am':'be','is':'be','are':'be','was':'be','were':'be','been':'be','being':'be','be':'be',
+  'has':'have','had':'have','having':'have','have':'have',
+  'does':'do','did':'do','done':'do','doing':'do','do':'do',
+  'says':'say','said':'say','saying':'say','say':'say',
+  'goes':'go','went':'go','gone':'go','going':'go','go':'go',
+  'gets':'get','got':'get','gotten':'get','getting':'get','get':'get',
+  'makes':'make','made':'make','making':'make','make':'make',
+  'knows':'know','knew':'know','known':'know','knowing':'know','know':'know',
+  'thinks':'think','thought':'think','thinking':'think','think':'think',
+  'takes':'take','took':'take','taken':'take','taking':'take','take':'take',
+  'sees':'see','saw':'see','seen':'see','seeing':'see','see':'see',
+  'comes':'come','came':'come','coming':'come','come':'come',
+  'wants':'want','wanted':'want','wanting':'want','want':'want',
+  'uses':'use','used':'use','using':'use','use':'use',
+  'finds':'find','found':'find','finding':'find','find':'find',
+  'gives':'give','gave':'give','given':'give','giving':'give','give':'give',
+  'tells':'tell','told':'tell','telling':'tell','tell':'tell',
+  'works':'work','worked':'work','working':'work','work':'work',
+  'calls':'call','called':'call','calling':'call','call':'call',
+  'tries':'try','tried':'try','trying':'try','try':'try',
+  'asks':'ask','asked':'ask','asking':'ask','ask':'ask',
+  'needs':'need','needed':'need','needing':'need','need':'need',
+  'feels':'feel','felt':'feel','feeling':'feel','feel':'feel',
+  'becomes':'become','became':'become','becoming':'become','become':'become',
+  'leaves':'leave','left':'leave','leaving':'leave','leave':'leave',
+  'puts':'put','putting':'put','put':'put',
+  'means':'mean','meant':'mean','meaning':'mean','mean':'mean',
+  'keeps':'keep','kept':'keep','keeping':'keep','keep':'keep',
+  'lets':'let','letting':'let','let':'let',
+  'begins':'begin','began':'begin','begun':'begin','beginning':'begin','begin':'begin',
+  'seems':'seem','seemed':'seem','seeming':'seem','seem':'seem',
+  'helps':'help','helped':'help','helping':'help','help':'help',
+  'shows':'show','showed':'show','shown':'show','showing':'show','show':'show',
+  'hears':'hear','heard':'hear','hearing':'hear','hear':'hear',
+  'plays':'play','played':'play','playing':'play','play':'play',
+  'runs':'run','ran':'run','running':'run','run':'run',
+  'moves':'move','moved':'move','moving':'move','move':'move',
+  'lives':'live','lived':'live','living':'live','live':'live',
+  'believes':'believe','believed':'believe','believing':'believe','believe':'believe',
+  'brings':'bring','brought':'bring','bringing':'bring','bring':'bring',
+  'happens':'happen','happened':'happen','happening':'happen','happen':'happen',
+  'writes':'write','wrote':'write','written':'write','writing':'write','write':'write',
+  'sits':'sit','sat':'sit','sitting':'sit','sit':'sit',
+  'stands':'stand','stood':'stand','standing':'stand','stand':'stand',
+  'loses':'lose','lost':'lose','losing':'lose','lose':'lose',
+  'pays':'pay','paid':'pay','paying':'pay','pay':'pay',
+  'meets':'meet','met':'meet','meeting':'meet','meet':'meet',
+  'includes':'include','included':'include','including':'include','include':'include',
+  'continues':'continue','continued':'continue','continuing':'continue','continue':'continue',
+  'sets':'set','setting':'set','set':'set',
+  'learns':'learn','learned':'learn','learnt':'learn','learning':'learn','learn':'learn',
+  'changes':'change','changed':'change','changing':'change','change':'change',
+  'leads':'lead','led':'lead','leading':'lead','lead':'lead',
+  'understands':'understand','understood':'understand','understanding':'understand','understand':'understand',
+  'watches':'watch','watched':'watch','watching':'watch','watch':'watch',
+  'follows':'follow','followed':'follow','following':'follow','follow':'follow',
+  'stops':'stop','stopped':'stop','stopping':'stop','stop':'stop',
+  'creates':'create','created':'create','creating':'create','create':'create',
+  'speaks':'speak','spoke':'speak','spoken':'speak','speaking':'speak','speak':'speak',
+  'reads':'read','reading':'read','read':'read',
+  'spends':'spend','spent':'spend','spending':'spend','spend':'spend',
+  'grows':'grow','grew':'grow','grown':'grow','growing':'grow','grow':'grow',
+  'opens':'open','opened':'open','opening':'open','open':'open',
+  'walks':'walk','walked':'walk','walking':'walk','walk':'walk',
+  'wins':'win','won':'win','winning':'win','win':'win',
+  'offers':'offer','offered':'offer','offering':'offer','offer':'offer',
+  'remembers':'remember','remembered':'remember','remembering':'remember','remember':'remember',
+  'loves':'love','loved':'love','loving':'love','love':'love',
+  'considers':'consider','considered':'consider','considering':'consider','consider':'consider',
+  'appears':'appear','appeared':'appear','appearing':'appear','appear':'appear',
+  'buys':'buy','bought':'buy','buying':'buy','buy':'buy',
+  'waits':'wait','waited':'wait','waiting':'wait','wait':'wait',
+  'serves':'serve','served':'serve','serving':'serve','serve':'serve',
+  'dies':'die','died':'die','dying':'die','die':'die',
+  'sends':'send','sent':'send','sending':'send','send':'send',
+  'expects':'expect','expected':'expect','expecting':'expect','expect':'expect',
+  'builds':'build','built':'build','building':'build','build':'build',
+  'stays':'stay','stayed':'stay','staying':'stay','stay':'stay',
+  'falls':'fall','fell':'fall','fallen':'fall','falling':'fall','fall':'fall',
+  'cuts':'cut','cutting':'cut','cut':'cut',
+  'reaches':'reach','reached':'reach','reaching':'reach','reach':'reach',
+  'kills':'kill','killed':'kill','killing':'kill','kill':'kill',
+  'remains':'remain','remained':'remain','remaining':'remain','remain':'remain',
+  'suggests':'suggest','suggested':'suggest','suggesting':'suggest','suggest':'suggest',
+  'raises':'raise','raised':'raise','raising':'raise','raise':'raise',
+  'passes':'pass','passed':'pass','passing':'pass','pass':'pass',
+  'sells':'sell','sold':'sell','selling':'sell','sell':'sell',
+  'requires':'require','required':'require','requiring':'require','require':'require',
+  'reports':'report','reported':'report','reporting':'report','report':'report',
+  'decides':'decide','decided':'decide','deciding':'decide','decide':'decide',
+  'pulls':'pull','pulled':'pull','pulling':'pull','pull':'pull',
+  'accepts':'accept','accepted':'accept','accepting':'accept','accept':'accept',
+  'explains':'explain','explained':'explain','explaining':'explain','explain':'explain',
+  'develops':'develop','developed':'develop','developing':'develop','develop':'develop',
+  'carries':'carry','carried':'carry','carrying':'carry','carry':'carry',
+  'breaks':'break','broke':'break','broken':'break','breaking':'break','break':'break',
+  'receives':'receive','received':'receive','receiving':'receive','receive':'receive',
+  'agrees':'agree','agreed':'agree','agreeing':'agree','agree':'agree',
+  'supports':'support','supported':'support','supporting':'support','support':'support',
+  'hits':'hit','hitting':'hit','hit':'hit',
+  'produces':'produce','produced':'produce','producing':'produce','produce':'produce',
+  'eats':'eat','ate':'eat','eaten':'eat','eating':'eat','eat':'eat',
+  'covers':'cover','covered':'cover','covering':'cover','cover':'cover',
+  'catches':'catch','caught':'catch','catching':'catch','catch':'catch',
+  'draws':'draw','drew':'draw','drawn':'draw','drawing':'draw','draw':'draw',
+  'chooses':'choose','chose':'choose','chosen':'choose','choosing':'choose','choose':'choose',
+  'allows':'allow','allowed':'allow','allowing':'allow','allow':'allow',
+  'reduces':'reduce','reduced':'reduce','reducing':'reduce','reduce':'reduce',
+  'plans':'plan','planned':'plan','planning':'plan','plan':'plan',
+  'returns':'return','returned':'return','returning':'return','return':'return',
+  'adds':'add','added':'add','adding':'add','add':'add',
+  'claims':'claim','claimed':'claim','claiming':'claim','claim':'claim',
+  'increases':'increase','increased':'increase','increasing':'increase','increase':'increase',
+  'holds':'hold','held':'hold','holding':'hold','hold':'hold',
+  'causes':'cause','caused':'cause','causing':'cause','cause':'cause',
+  'points':'point','pointed':'point','pointing':'point','point':'point',
+  'identifies':'identify','identified':'identify','identifying':'identify','identify':'identify',
+  'turns':'turn','turned':'turn','turning':'turn','turn':'turn',
+  'realizes':'realize','realized':'realize','realizing':'realize','realize':'realize',
+  'bears':'bear','bore':'bear','born':'bear','borne':'bear','bearing':'bear','bear':'bear',
+  'faces':'face','faced':'face','facing':'face','face':'face',
+  'applies':'apply','applied':'apply','applying':'apply','apply':'apply',
+  'describes':'describe','described':'describe','describing':'describe','describe':'describe',
+  'seeks':'seek','sought':'seek','seeking':'seek','seek':'seek',
+  'discusses':'discuss','discussed':'discuss','discussing':'discuss','discuss':'discuss',
+  'argues':'argue','argued':'argue','arguing':'argue','argue':'argue',
+  'indicates':'indicate','indicated':'indicate','indicating':'indicate','indicate':'indicate',
+  'joins':'join','joined':'join','joining':'join','join':'join',
+  'occurs':'occur','occurred':'occur','occurring':'occur','occur':'occur',
+  'manages':'manage','managed':'manage','managing':'manage','manage':'manage',
+  'prepares':'prepare','prepared':'prepare','preparing':'prepare','prepare':'prepare',
+  'expresses':'express','expressed':'express','expressing':'express','express':'express',
+  'wishes':'wish','wished':'wish','wishing':'wish','wish':'wish',
+  'represents':'represent','represented':'represent','representing':'represent','represent':'represent',
+  'encourages':'encourage','encouraged':'encourage','encouraging':'encourage','encourage':'encourage',
+  'enjoys':'enjoy','enjoyed':'enjoy','enjoying':'enjoy','enjoy':'enjoy',
+  'maintains':'maintain','maintained':'maintain','maintaining':'maintain','maintain':'maintain',
+  'achieves':'achieve','achieved':'achieve','achieving':'achieve','achieve':'achieve',
+  'refers':'refer','referred':'refer','referring':'refer','refer':'refer',
+  'announces':'announce','announced':'announce','announcing':'announce','announce':'announce',
+  'teaches':'teach','taught':'teach','teaching':'teach','teach':'teach',
+  'demonstrates':'demonstrate','demonstrated':'demonstrate','demonstrating':'demonstrate','demonstrate':'demonstrate',
+  'obtains':'obtain','obtained':'obtain','obtaining':'obtain','obtain':'obtain',
+  'hangs':'hang','hung':'hang','hanged':'hang','hanging':'hang','hang':'hang',
+  'fears':'fear','feared':'fear','fearing':'fear','fear':'fear',
+  'recognizes':'recognize','recognized':'recognize','recognizing':'recognize','recognize':'recognize',
+  'attempts':'attempt','attempted':'attempt','attempting':'attempt','attempt':'attempt',
+  'repeats':'repeat','repeated':'repeat','repeating':'repeat','repeat':'repeat',
+  'proves':'prove','proved':'prove','proven':'prove','proving':'prove','prove':'prove',
+  'exists':'exist','existed':'exist','existing':'exist','exist':'exist',
+  'enters':'enter','entered':'enter','entering':'enter','enter':'enter',
+  'arrives':'arrive','arrived':'arrive','arriving':'arrive','arrive':'arrive',
+  'ignores':'ignore','ignored':'ignore','ignoring':'ignore','ignore':'ignore',
+  'appreciates':'appreciate','appreciated':'appreciate','appreciating':'appreciate','appreciate':'appreciate',
+  'deals':'deal','dealt':'deal','dealing':'deal','deal':'deal',
+  'forces':'force','forced':'force','forcing':'force','force':'force',
+  'imagines':'imagine','imagined':'imagine','imagining':'imagine','imagine':'imagine',
+  'relates':'relate','related':'relate','relating':'relate','relate':'relate',
+  'avoids':'avoid','avoided':'avoid','avoiding':'avoid','avoid':'avoid',
+  'shakes':'shake','shook':'shake','shaken':'shake','shaking':'shake','shake':'shake',
+  'conducts':'conduct','conducted':'conduct','conducting':'conduct','conduct':'conduct',
+  'denies':'deny','denied':'deny','denying':'deny','deny':'deny',
+  'emerges':'emerge','emerged':'emerge','emerging':'emerge','emerge':'emerge',
+  'complains':'complain','complained':'complain','complaining':'complain','complain':'complain',
+  'mentions':'mention','mentioned':'mention','mentioning':'mention','mention':'mention',
+  'performs':'perform','performed':'perform','performing':'perform','perform':'perform',
+  'celebrates':'celebrate','celebrated':'celebrate','celebrating':'celebrate','celebrate':'celebrate',
+  'attends':'attend','attended':'attend','attending':'attend','attend':'attend',
+  'assumes':'assume','assumed':'assume','assuming':'assume','assume':'assume',
+  'proposes':'propose','proposed':'propose','proposing':'propose','propose':'propose',
+  'wonders':'wonder','wondered':'wonder','wondering':'wonder','wonder':'wonder',
+  'reflects':'reflect','reflected':'reflect','reflecting':'reflect','reflect':'reflect',
+  'succeeds':'succeed','succeeded':'succeed','succeeding':'succeed','succeed':'succeed',
+  'invests':'invest','invested':'invest','investing':'invest','invest':'invest',
+  'discovers':'discover','discovered':'discover','discovering':'discover','discover':'discover',
+  'reveals':'reveal','revealed':'reveal','revealing':'reveal','reveal':'reveal',
+  'prefers':'prefer','preferred':'prefer','preferring':'prefer','prefer':'prefer',
+  'votes':'vote','voted':'vote','voting':'vote','vote':'vote',
+  'paints':'paint','painted':'paint','painting':'paint','paint':'paint',
+  'operates':'operate','operated':'operate','operating':'operate','operate':'operate',
+  'sleeps':'sleep','slept':'sleep','sleeping':'sleep','sleep':'sleep',
+  'thanks':'thank','thanked':'thank','thanking':'thank','thank':'thank',
+  'fails':'fail','failed':'fail','failing':'fail','fail':'fail',
+  'competes':'compete','competed':'compete','competing':'compete','compete':'compete',
+  'establishes':'establish','established':'establish','establishing':'establish','establish':'establish',
+  'observes':'observe','observed':'observe','observing':'observe','observe':'observe',
+  'improves':'improve','improved':'improve','improving':'improve','improve':'improve',
+  'worries':'worry','worried':'worry','worrying':'worry','worry':'worry',
+  'earns':'earn','earned':'earn','earning':'earn','earn':'earn',
+  'smiles':'smile','smiled':'smile','smiling':'smile','smile':'smile',
+  'examines':'examine','examined':'examine','examining':'examine','examine':'examine',
+  'protects':'protect','protected':'protect','protecting':'protect','protect':'protect',
+  'suffers':'suffer','suffered':'suffer','suffering':'suffer','suffer':'suffer',
+  'permits':'permit','permitted':'permit','permitting':'permit','permit':'permit',
+  'escapes':'escape','escaped':'escape','escaping':'escape','escape':'escape',
+  'delivers':'deliver','delivered':'deliver','delivering':'deliver','deliver':'deliver',
+  'promotes':'promote','promoted':'promote','promoting':'promote','promote':'promote',
+  'adapts':'adapt','adapted':'adapt','adapting':'adapt','adapt':'adapt',
+  'concludes':'conclude','concluded':'conclude','concluding':'conclude','conclude':'conclude',
+  'criticizes':'criticize','criticized':'criticize','criticizing':'criticize','criticize':'criticize',
+  'laughs':'laugh','laughed':'laugh','laughing':'laugh','laugh':'laugh',
+  'retires':'retire','retired':'retire','retiring':'retire','retire':'retire',
+  'extends':'extend','extended':'extend','extending':'extend','extend':'extend',
+  'affords':'afford','afforded':'afford','affording':'afford','afford':'afford',
+  'declares':'declare','declared':'declare','declaring':'declare','declare':'declare',
+  'defends':'defend','defended':'defend','defending':'defend','defend':'defend',
+  'survives':'survive','survived':'survive','surviving':'survive','survive':'survive',
+  'warns':'warn','warned':'warn','warning':'warn','warn':'warn',
+  'treats':'treat','treated':'treat','treating':'treat','treat':'treat',
+  'sings':'sing','sang':'sing','sung':'sing','singing':'sing','sing':'sing',
+  'belongs':'belong','belonged':'belong','belonging':'belong','belong':'belong',
+  'promises':'promise','promised':'promise','promising':'promise','promise':'promise',
+  'releases':'release','released':'release','releasing':'release','release':'release',
+  'determines':'determine','determined':'determine','determining':'determine','determine':'determine',
+  'relies':'rely','relied':'rely','relying':'rely','rely':'rely',
+  'drives':'drive','drove':'drive','driven':'drive','driving':'drive','drive':'drive',
+  'drinks':'drink','drank':'drink','drunk':'drink','drinking':'drink','drink':'drink',
+  'flies':'fly','flew':'fly','flown':'fly','flying':'fly','fly':'fly',
+  'lies':'lie','lay':'lie','lain':'lie','lying':'lie','lie':'lie',
+  'rises':'rise','rose':'rise','risen':'rise','rising':'rise','rise':'rise',
+  'throws':'throw','threw':'throw','thrown':'throw','throwing':'throw','throw':'throw',
+  'wears':'wear','wore':'wear','worn':'wear','wearing':'wear','wear':'wear',
+  'swims':'swim','swam':'swim','swum':'swim','swimming':'swim','swim':'swim',
+  'rides':'ride','rode':'ride','ridden':'ride','riding':'ride','ride':'ride',
+  'fights':'fight','fought':'fight','fighting':'fight','fight':'fight',
+  'hides':'hide','hid':'hide','hidden':'hide','hiding':'hide','hide':'hide',
+  'shoots':'shoot','shot':'shoot','shooting':'shoot','shoot':'shoot',
+  'steals':'steal','stole':'steal','stolen':'steal','stealing':'steal','steal':'steal',
+  'wakes':'wake','woke':'wake','woken':'wake','waking':'wake','wake':'wake',
+  'freezes':'freeze','froze':'freeze','frozen':'freeze','freezing':'freeze','freeze':'freeze',
+  'forgets':'forget','forgot':'forget','forgotten':'forget','forgetting':'forget','forget':'forget',
+  'forgives':'forgive','forgave':'forgive','forgiven':'forgive','forgiving':'forgive','forgive':'forgive',
+  'forbids':'forbid','forbade':'forbid','forbidden':'forbid','forbidding':'forbid','forbid':'forbid',
+  'arises':'arise','arose':'arise','arisen':'arise','arising':'arise','arise':'arise',
+  'awakes':'awake','awoke':'awake','awoken':'awake','awaking':'awake','awake':'awake',
+  'bends':'bend','bent':'bend','bending':'bend','bend':'bend',
+  'bets':'bet','betting':'bet','bet':'bet',
+  'binds':'bind','bound':'bind','binding':'bind','bind':'bind',
+  'bites':'bite','bit':'bite','bitten':'bite','biting':'bite','bite':'bite',
+  'bleeds':'bleed','bled':'bleed','bleeding':'bleed','bleed':'bleed',
+  'blows':'blow','blew':'blow','blown':'blow','blowing':'blow','blow':'blow',
+  'breeds':'breed','bred':'breed','breeding':'breed','breed':'breed',
+  'broadcasts':'broadcast','broadcasting':'broadcast','broadcast':'broadcast',
+  'bursts':'burst','bursting':'burst','burst':'burst',
+  'clings':'cling','clung':'cling','clinging':'cling','cling':'cling',
+  'costs':'cost','costing':'cost','cost':'cost',
+  'creeps':'creep','crept':'creep','creeping':'creep','creep':'creep',
+  'digs':'dig','dug':'dig','digging':'dig','dig':'dig',
+  'dives':'dive','dove':'dive','dived':'dive','diving':'dive','dive':'dive',
+  'feeds':'feed','fed':'feed','feeding':'feed','feed':'feed',
+  'flees':'flee','fled':'flee','fleeing':'flee','flee':'flee',
+  'flings':'fling','flung':'fling','flinging':'fling','fling':'fling',
+  'forecasts':'forecast','forecasting':'forecast','forecast':'forecast',
+  'grinds':'grind','ground':'grind','grinding':'grind','grind':'grind',
+  'leaps':'leap','leaped':'leap','leapt':'leap','leaping':'leap','leap':'leap',
+  'lends':'lend','lent':'lend','lending':'lend','lend':'lend',
+  'shines':'shine','shone':'shine','shined':'shine','shining':'shine','shine':'shine',
+  'shrinks':'shrink','shrank':'shrink','shrunk':'shrink','shrinking':'shrink','shrink':'shrink',
+  'sinks':'sink','sank':'sink','sunk':'sink','sinking':'sink','sink':'sink',
+  'slays':'slay','slew':'slay','slain':'slay','slaying':'slay','slay':'slay',
+  'slides':'slide','slid':'slide','sliding':'slide','slide':'slide',
+  'slings':'sling','slung':'sling','slinging':'sling','sling':'sling',
+  'slits':'slit','slitting':'slit','slit':'slit',
+  'spins':'spin','spun':'spin','spinning':'spin','spin':'spin',
+  'spits':'spit','spat':'spit','spit':'spit','spitting':'spit',
+  'splits':'split','splitting':'split','split':'split',
+  'spreads':'spread','spreading':'spread','spread':'spread',
+  'springs':'spring','sprang':'spring','sprung':'spring','springing':'spring','spring':'spring',
+  'stings':'sting','stung':'sting','stinging':'sting','sting':'sting',
+  'stinks':'stink','stank':'stink','stunk':'stink','stinking':'stink','stink':'stink',
+  'strides':'stride','strode':'stride','striding':'stride','stride':'stride',
+  'strikes':'strike','struck':'strike','stricken':'strike','striking':'strike','strike':'strike',
+  'strings':'string','strung':'string','stringing':'string','string':'string',
+  'strives':'strive','strove':'strive','striven':'strive','striving':'strive','strive':'strive',
+  'swears':'swear','swore':'swear','sworn':'swear','swearing':'swear','swear':'swear',
+  'sweeps':'sweep','swept':'sweep','sweeping':'sweep','sweep':'sweep',
+  'swells':'swell','swelled':'swell','swollen':'swell','swelling':'swell','swell':'swell',
+  'swings':'swing','swung':'swing','swinging':'swing','swing':'swing',
+  'tears':'tear','tore':'tear','torn':'tear','tearing':'tear','tear':'tear',
+  'thrusts':'thrust','thrusting':'thrust','thrust':'thrust',
+  'treads':'tread','trod':'tread','trodden':'tread','treading':'tread','tread':'tread',
+  'undergoes':'undergo','underwent':'undergo','undergone':'undergo','undergoing':'undergo','undergo':'undergo',
+  'undertakes':'undertake','undertook':'undertake','undertaken':'undertake','undertaking':'undertake','undertake':'undertake',
+  'upsets':'upset','upsetting':'upset','upset':'upset',
+  'weaves':'weave','wove':'weave','woven':'weave','weaving':'weave','weave':'weave',
+  'weeps':'weep','wept':'weep','weeping':'weep','weep':'weep',
+  'withstands':'withstand','withstood':'withstand','withstanding':'withstand','withstand':'withstand',
+  'wrings':'wring','wrung':'wring','wringing':'wring','wring':'wring'
+};
+
+// Additional common verbs not already covered (regular verbs)
+const REGULAR_VERB_BASES = new Set([
+  'act','answer','appear','attach','attack','attract','bake','ban','base','block','bloom','boil','book',
+  'border','borrow','bounce','breathe','brush','burn','cancel','care','chase','cheat','check','chew','clap',
+  'clean','clear','climb','close','collect','color','combine','commit','communicate','compare','compete',
+  'complain','complete','concentrate','concern','confirm','connect','conserve','consist','contain','control',
+  'cook','copy','count','crack','crash','cross','cry','cure','curl','curve','cycle','damage','dance','dare',
+  'date','debug','delay','delete','demand','depend','design','destroy','detect','differ','disagree','disappear',
+  'discover','discuss','dislike','disturb','divide','doubt','drag','drain','dream','dress','drill','drop','dry',
+  'dust','employ','empty','enable','enclose','end','engage','enhance','enjoy','ensure','equip','erase','escape',
+  'estimate','evolve','examine','exchange','excite','exclude','excuse','exercise','exist','expand','expect',
+  'experience','experiment','explore','export','fade','fail','fancy','farm','fasten','favor','fax','fence',
+  'fetch','file','fill','film','filter','finish','fire','fish','fit','fix','flash','float','flood','flow',
+  'fold','form','frame','free','fry','gain','gather','gaze','glue','grab','grace','grade','grant','grasp',
+  'grease','greet','grill','grip','groan','group','guarantee','guard','guess','guide','hammer','hand','handle',
+  'harm','hate','haunt','head','heal','heat','hop','hope','hug','hum','hunt','hurry','hurt','identify','impress',
+  'improve','inform','inject','injure','instruct','intend','interest','interfere','interrupt','interview',
+  'introduce','invent','invite','iron','irritate','itch','jail','jam','jog','judge','juggle','jump','kick',
+  'knock','label','land','last','launch','lean','leap','level','license','lick','lift','light','like','limit',
+  'link','list','listen','load','loan','locate','lock','long','look','loop','loosen','lower','mail','mark',
+  'marry','match','mate','matter','measure','melt','mend','mess','milk','mine','miss','mix','moan','model',
+  'modify','monitor','mourn','multiply','murder','nail','name','neglect','negotiate','nest','nod','note','notice',
+  'number','obey','object','observe','occupy','offend','order','organize','overflow','owe','own','pack','paddle',
+  'park','part','participate','pause','peck','pedal','peel','peep','phone','pick','pin','pinch','plant','please',
+  'plug','poke','polish','pop','possess','post','pour','practice','praise','pray','preach','precede','predict',
+  'prefer','preserve','press','pretend','prevent','prick','print','process','produce','program','project',
+  'promise','pronounce','protect','protest','provide','pull','pump','punch','punish','purchase','push','qualify',
+  'question','queue','race','rain','rape','rate','realize','reason','rebel','recall','recognize','recommend',
+  'record','recover','reduce','reflect','refuse','regret','reign','reject','rejoice','relate','relax','rely',
+  'remain','remind','remove','rename','repair','replace','reply','reproduce','request','rescue','research',
+  'reserve','resist','resolve','respect','respond','rest','result','retire','retrieve','reverse','review',
+  'rhyme','ring','rinse','risk','rob','rock','roll','rot','rub','ruin','rule','rush','sail','satisfy','save',
+  'scare','scatter','scold','scorch','scrape','scratch','scream','screw','seal','search','season','secure',
+  'select','separate','settle','shade','shake','share','shave','shelter','shift','shine','shiver','shock',
+  'shop','shout','shovel','signal','sin','sink','sip','ski','skip','slap','sleep','slip','slow','smash','smell',
+  'smoke','snap','snatch','sneak','sneeze','sniff','snore','snow','soak','solve','sort','sound','spare','spark',
+  'sparkle','spell','spill','spoil','spot','spray','squeeze','stain','stamp','stare','start','starve','state',
+  'station','steer','step','stick','stir','stitch','store','storm','strain','strap','strengthen','stress',
+  'stretch','strip','stroke','struggle','study','stuff','stumble','submit','subtract','succeed','suck','suffer',
+  'suggest','suit','supply','suppose','surprise','surround','suspect','suspend','swallow','swap','swear','sweat',
+  'switch','talk','tame','tap','taste','tease','telephone','tempt','tend','test','thank','thaw','tickle','tie',
+  'time','tip','tire','touch','tour','tow','trace','trade','train','transfer','transform','translate','transmit',
+  'transport','trap','travel','treasure','tremble','trick','trip','trot','trouble','trust','tug','tumble','tune',
+  'twist','type','unbend','uncover','undergo','underline','unite','unlock','unpack','untidy','update','upgrade',
+  'upset','urge','value','vanish','vary','view','visit','wail','wander','warm','wash','waste','water','wave',
+  'weigh','welcome','whip','whisper','whistle','wink','wipe','wonder','wrap','wrestle','yawn','yell','zip','zoom',
+  // Business/tech verbs
+  'access','accrue','allocate','analyze','approve','archive','audit','authenticate','authorize','automate',
+  'benchmark','bill','budget','cache','calibrate','cancel','certify','charge','cite','clone','code','compile',
+  'configure','consolidate','construct','consult','coordinate','correlate','customize','decrypt','default',
+  'delegate','deploy','deprecate','diagnose','digitize','discount','distribute','document','download','draft',
+  'edit','educate','elevate','email','embed','empower','encrypt','enforce','engineer','enrich','entitle',
+  'escalate','estimate','evaluate','execute','exploit','extract','facilitate','finalize','finance','forecast',
+  'format','formulate','fund','generate','govern','grant','hash','highlight','host','implement','import',
+  'incentivize','incorporate','index','initialize','innovate','input','inspect','install','instantiate',
+  'integrate','interface','interpolate','interpret','invoice','iterate','launch','leverage','license','log',
+  'mandate','manipulate','manufacture','map','maximize','merge','migrate','minimize','mitigate','moderate',
+  'modulate','monetize','navigate','network','normalize','notify','onboard','operate','optimize','orchestrate',
+  'originate','output','outsource','override','parallelize','parse','patent','persist','personalize','pilot',
+  'ping','pipeline','pivot','poll','populate','position','post','power','price','prioritize','probe','profile',
+  'proliferate','provision','publish','query','quote','rank','reconcile','redirect','refactor','reference',
+  'refine','refund','register','regulate','reimburse','reinforce','render','renew','replicate','requisition',
+  'reschedule','reset','resize','restore','restructure','revert','revise','rotate','route','sample','sanitize',
+  'scale','scan','schedule','scope','script','scroll','segment','serialize','ship','showcase','simulate',
+  'sketch','skim','snapshot','sort','source','spawn','specialize','specify','sponsor','spotlight','stage',
+  'standardize','startup','stream','structure','subscribe','subsidize','summarize','supplement','sync',
+  'syndicate','synthesize','systematize','tag','target','task','template','terminate','throttle','toggle',
+  'tokenize','track','trademark','transcribe','trigger','troubleshoot','truncate','tune','tweak','uninstall',
+  'unsubscribe','upload','upsell','utilize','validate','vectorize','verify','version','visualize','whitelist'
+]);
+
+// Most accurate verb detection possible without NLP library
 function isLikelyVerb(word) {
   const w = word.toLowerCase().replace(/[^a-z]/g,'');
   if (w.length < 2) return false;
-  return (
-    w.endsWith('ing') ||
-    w.endsWith('ed') ||
-    w.endsWith('es') ||
-    w.endsWith('s') && !w.endsWith('ss') ||
-    ['go','do','have','be','say','get','make','know','think','take','see','come','want','use','find','give','tell','work','call','try','ask','need','feel','become','leave','put','mean','keep','let','begin','seem','help','show','hear','play','run','move','live','believe','bring','happen','write','sit','stand','lose','pay','meet','include','continue','set','learn','change','lead','understand','watch','follow','stop','create','speak','read','spend','grow','open','walk','win','offer','remember','love','consider','appear','buy','wait','serve','die','send','expect','build','stay','fall','cut','reach','kill','remain'].includes(w)
-  );
+
+  // Direct lookup in comprehensive verb forms dictionary
+  if (VERB_FORMS.hasOwnProperty(w)) return true;
+
+  // Check regular verbs base forms
+  if (REGULAR_VERB_BASES.has(w)) return true;
+
+  // Check inflections of regular verbs
+  // -ing forms
+  if (w.endsWith('ing') && w.length > 4) {
+    const base = w.slice(0, -3);
+    if (REGULAR_VERB_BASES.has(base)) return true;
+    if (REGULAR_VERB_BASES.has(base + 'e')) return true;
+    // doubled consonant: running -> run
+    if (base.length > 1 && base[base.length-1] === base[base.length-2]) {
+      if (REGULAR_VERB_BASES.has(base.slice(0, -1))) return true;
+    }
+  }
+
+  // -ed forms
+  if (w.endsWith('ed') && w.length > 3) {
+    const base = w.slice(0, -2);
+    if (REGULAR_VERB_BASES.has(base)) return true;
+    if (REGULAR_VERB_BASES.has(base + 'e')) return true;
+    // doubled consonant: stopped -> stop
+    if (base.length > 1 && base[base.length-1] === base[base.length-2]) {
+      if (REGULAR_VERB_BASES.has(base.slice(0, -1))) return true;
+    }
+    // -ied to -y: studied -> study
+    if (base.endsWith('i') && base.length > 1) {
+      if (REGULAR_VERB_BASES.has(base.slice(0, -1) + 'y')) return true;
+    }
+  }
+
+  // -s forms
+  if (w.endsWith('s') && !w.endsWith('ss') && !w.endsWith('us') && w.length > 2) {
+    const base = w.slice(0, -1);
+    if (REGULAR_VERB_BASES.has(base)) return true;
+    // -es forms
+    if (w.endsWith('es') && w.length > 3) {
+      const base2 = w.slice(0, -2);
+      if (REGULAR_VERB_BASES.has(base2)) return true;
+      // -ies to -y: tries -> try
+      if (base2.endsWith('i') && base2.length > 1) {
+        if (REGULAR_VERB_BASES.has(base2.slice(0, -1) + 'y')) return true;
+      }
+      // -ches, -shes, -xes, -zes
+      if (base2.endsWith('ch') || base2.endsWith('sh') || base2.endsWith('x') || base2.endsWith('z')) {
+        if (REGULAR_VERB_BASES.has(base2)) return true;
+      }
+    }
+  }
+
+  return false;
 }
 
 const textarea = document.querySelector('textarea');
@@ -98,11 +526,28 @@ let displayQueue = [];  // array of {text: string, type: 'word'|'space'|'newline
 let index = 0;
 let timer = null;
 
+// Minimal markdown to HTML converter (no deps, ~20 LOC)
+function md2html(txt) {
+  return txt
+    .replace(/^### (.*$)/gm, '<h3>$1</h3>')
+    .replace(/^## (.*$)/gm, '<h2>$1</h2>')
+    .replace(/^# (.*$)/gm, '<h1>$1</h1>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    .replace(/`(.+?)`/g, '<code>$1</code>')
+    .replace(/\[(.+?)\]\((.+?)\)/g, '<a href="$2">$1</a>')
+    .replace(/^> (.+$)/gm, '<blockquote>$1</blockquote>')
+    .replace(/^\* (.+$)/gm, '<li>$1</li>')
+    .replace(/^- (.+$)/gm, '<li>$1</li>')
+    .replace(/^(\d+)\. (.+$)/gm, '<li>$2</li>')
+    .replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>');
+}
+
 function buildDisplayQueue() {
   const text = textarea.value || '';
   const rawTokens = text.split(/(\s+)/); // keeps spaces as tokens
   displayQueue = [];
-  
+
   for (let token of rawTokens) {
     if (!token.trim()) {
       // pure whitespace
@@ -152,14 +597,22 @@ function displayNext() {
   }
 
   const item = displayQueue[index];
-  const span = document.createElement('span');
 
   if (item.type === 'newline') {
     readerText.appendChild(document.createElement('br'));
   } else if (item.type === 'space') {
     readerText.appendChild(document.createTextNode(' '));
   } else {
-    span.textContent = item.text;
+    const span = document.createElement('span');
+    const html = md2html(item.text);
+
+    // If markdown was converted, use innerHTML; otherwise use textContent
+    if (html !== item.text && html.includes('<')) {
+      span.innerHTML = html;
+    } else {
+      span.textContent = item.text;
+    }
+
     if (item.type === 'verb') span.className = 'verb';
     if (item.type === 'removed') span.className = 'removed';
     readerText.appendChild(span);
