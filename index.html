@@ -36,17 +36,17 @@
   
   /* Visual treatment */
   #readerText { color:#bbb; }               /* all text slightly darker */
-  #readerText .verb { color:#fff; font-weight:600; }   /* verbs pop */
+  #readerText .verb { color:#fff; font-weight:600; }   /* verbs pop - semi-bold */
   #readerText .removed { opacity:0.15; }    /* placeholder for removed stop words */
 
   /* Markdown styles */
   #readerText h1 { font-size:2em; font-weight:bold; margin:1em 0 0.5em; color:#fff; }
   #readerText h2 { font-size:1.5em; font-weight:bold; margin:1em 0 0.5em; color:#fff; }
   #readerText h3 { font-size:1.17em; font-weight:bold; margin:1em 0 0.5em; color:#fff; }
-  #readerText strong { font-weight:bold; color:#fff; }
-  #readerText em { font-style:italic; }
-  #readerText code { background:#222; padding:0.2em 0.4em; border-radius:3px; font-family:monospace; color:#0f0; }
-  #readerText a { color:#0f0; text-decoration:underline; }
+  #readerText strong { font-weight:normal; color:#0f0; }  /* markdown bold - just green, not bold */
+  #readerText em { font-style:italic; color:#fff; }
+  #readerText code { background:#222; padding:0.2em 0.4em; border-radius:3px; font-family:monospace; color:#f80; }
+  #readerText a { color:#0ff; text-decoration:underline; }
   #readerText blockquote { border-left:3px solid #0f0; padding-left:1em; margin:1em 0; opacity:0.8; }
   #readerText ul, #readerText ol { margin:0.5em 0; padding-left:2em; }
   #readerText li { margin:0.25em 0; }
@@ -526,46 +526,163 @@ let displayQueue = [];  // array of {text: string, type: 'word'|'space'|'newline
 let index = 0;
 let timer = null;
 
-// Minimal markdown to HTML converter (no deps, ~20 LOC)
-function md2html(txt) {
-  return txt
-    .replace(/^### (.*$)/gm, '<h3>$1</h3>')
-    .replace(/^## (.*$)/gm, '<h2>$1</h2>')
-    .replace(/^# (.*$)/gm, '<h1>$1</h1>')
-    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    .replace(/\*(.+?)\*/g, '<em>$1</em>')
-    .replace(/`(.+?)`/g, '<code>$1</code>')
-    .replace(/\[(.+?)\]\((.+?)\)/g, '<a href="$2">$1</a>')
-    .replace(/^> (.+$)/gm, '<blockquote>$1</blockquote>')
-    .replace(/^\* (.+$)/gm, '<li>$1</li>')
-    .replace(/^- (.+$)/gm, '<li>$1</li>')
-    .replace(/^(\d+)\. (.+$)/gm, '<li>$2</li>')
-    .replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>');
-}
+// Track current markdown context
+let mdContext = [];
 
 function buildDisplayQueue() {
   const text = textarea.value || '';
-  const rawTokens = text.split(/(\s+)/); // keeps spaces as tokens
+  const lines = text.split('\n');
   displayQueue = [];
+  mdContext = [];
 
-  for (let token of rawTokens) {
-    if (!token.trim()) {
-      // pure whitespace
-      if (token.includes('\n')) displayQueue.push({text: '\n', type: 'newline'});
-      else if (token) displayQueue.push({text: ' ', type: 'space'});
-      continue;
+  for (let i = 0; i < lines.length; i++) {
+    let line = lines[i];
+    let lineType = 'normal';
+    let mdTag = null;
+
+    // Detect line-level markdown
+    if (line.match(/^### /)) {
+      line = line.replace(/^### /, '');
+      lineType = 'h3';
+    } else if (line.match(/^## /)) {
+      line = line.replace(/^## /, '');
+      lineType = 'h2';
+    } else if (line.match(/^# /)) {
+      line = line.replace(/^# /, '');
+      lineType = 'h1';
+    } else if (line.match(/^> /)) {
+      line = line.replace(/^> /, '');
+      lineType = 'blockquote';
+    } else if (line.match(/^[\*\-] /)) {
+      line = line.replace(/^[\*\-] /, '');
+      lineType = 'li';
+    } else if (line.match(/^\d+\. /)) {
+      line = line.replace(/^\d+\. /, '');
+      lineType = 'li';
     }
 
-    const clean = token.toLowerCase().replace(/[^a-z]/g, '');
-    const isStop = STOP_WORDS.has(clean);
+    // Add opening tag if needed
+    if (lineType !== 'normal') {
+      displayQueue.push({text: `<${lineType}>`, type: 'md-open', tag: lineType});
+    }
 
-    if (removeStopsCheckbox.checked && isStop && clean) {
-      // keep spacing but visually ghost the stop word
-      displayQueue.push({text: token, type: 'removed'});
-    } else {
-      // normal word
-      const type = isLikelyVerb(token) ? 'verb' : 'word';
-      displayQueue.push({text: token, type});
+    // Process inline markdown and tokenize
+    const parts = [];
+    let remaining = line;
+
+    // Process bold, italic, code, links
+    while (remaining.length > 0) {
+      const boldMatch = remaining.match(/\*\*(.+?)\*\*/);
+      const italicMatch = remaining.match(/\*(.+?)\*/);
+      const codeMatch = remaining.match(/`(.+?)`/);
+      const linkMatch = remaining.match(/\[(.+?)\]\((.+?)\)/);
+
+      let nextMatch = null;
+      let matchType = null;
+      let matchIndex = Infinity;
+
+      if (boldMatch && boldMatch.index < matchIndex) {
+        matchIndex = boldMatch.index;
+        nextMatch = boldMatch;
+        matchType = 'bold';
+      }
+      if (italicMatch && italicMatch.index < matchIndex && (!boldMatch || italicMatch.index < boldMatch.index)) {
+        matchIndex = italicMatch.index;
+        nextMatch = italicMatch;
+        matchType = 'italic';
+      }
+      if (codeMatch && codeMatch.index < matchIndex) {
+        matchIndex = codeMatch.index;
+        nextMatch = codeMatch;
+        matchType = 'code';
+      }
+      if (linkMatch && linkMatch.index < matchIndex) {
+        matchIndex = linkMatch.index;
+        nextMatch = linkMatch;
+        matchType = 'link';
+      }
+
+      if (nextMatch) {
+        // Add text before match
+        if (nextMatch.index > 0) {
+          parts.push({text: remaining.substring(0, nextMatch.index), md: null});
+        }
+
+        // Add matched content with markdown info
+        if (matchType === 'bold') {
+          parts.push({text: nextMatch[1], md: 'strong'});
+          remaining = remaining.substring(nextMatch.index + nextMatch[0].length);
+        } else if (matchType === 'italic') {
+          parts.push({text: nextMatch[1], md: 'em'});
+          remaining = remaining.substring(nextMatch.index + nextMatch[0].length);
+        } else if (matchType === 'code') {
+          parts.push({text: nextMatch[1], md: 'code'});
+          remaining = remaining.substring(nextMatch.index + nextMatch[0].length);
+        } else if (matchType === 'link') {
+          parts.push({text: nextMatch[1], md: 'a', href: nextMatch[2]});
+          remaining = remaining.substring(nextMatch.index + nextMatch[0].length);
+        }
+      } else {
+        parts.push({text: remaining, md: null});
+        break;
+      }
+    }
+
+    // Tokenize each part
+    for (let part of parts) {
+      if (part.md) {
+        displayQueue.push({text: `<${part.md}${part.href ? ` href="${part.href}"` : ''}>`, type: 'md-open', tag: part.md});
+      }
+
+      const rawTokens = part.text.split(/(\s+)/);
+      for (let token of rawTokens) {
+        if (!token.trim()) {
+          if (token) displayQueue.push({text: ' ', type: 'space'});
+          continue;
+        }
+
+        // Separate word from trailing punctuation
+        const match = token.match(/^([a-zA-Z]+)([.,;:!?"']+)$/);
+        if (match) {
+          const word = match[1];
+          const punct = match[2];
+
+          const clean = word.toLowerCase();
+          const isStop = STOP_WORDS.has(clean);
+
+          if (removeStopsCheckbox.checked && isStop && clean) {
+            displayQueue.push({text: word, type: 'removed'});
+          } else {
+            const type = isLikelyVerb(word) ? 'verb' : 'word';
+            displayQueue.push({text: word, type});
+          }
+          displayQueue.push({text: punct, type: 'punct'});
+        } else {
+          const clean = token.toLowerCase().replace(/[^a-z]/g, '');
+          const isStop = STOP_WORDS.has(clean);
+
+          if (removeStopsCheckbox.checked && isStop && clean) {
+            displayQueue.push({text: token, type: 'removed'});
+          } else {
+            const type = isLikelyVerb(token) ? 'verb' : 'word';
+            displayQueue.push({text: token, type});
+          }
+        }
+      }
+
+      if (part.md) {
+        displayQueue.push({text: `</${part.md}>`, type: 'md-close', tag: part.md});
+      }
+    }
+
+    // Add closing tag if needed
+    if (lineType !== 'normal') {
+      displayQueue.push({text: `</${lineType}>`, type: 'md-close', tag: lineType});
+    }
+
+    // Add newline unless it's the last line
+    if (i < lines.length - 1) {
+      displayQueue.push({text: '\n', type: 'newline'});
     }
   }
 }
@@ -589,10 +706,13 @@ function startStreaming() {
   timer = setInterval(displayNext, msPerWord());
 }
 
+let currentContainer = null;
+
 function displayNext() {
   if (index >= displayQueue.length) {
     clearInterval(timer);
     timer = null;
+    currentContainer = null;
     return;
   }
 
@@ -600,22 +720,44 @@ function displayNext() {
 
   if (item.type === 'newline') {
     readerText.appendChild(document.createElement('br'));
+    currentContainer = null;
   } else if (item.type === 'space') {
-    readerText.appendChild(document.createTextNode(' '));
-  } else {
-    const span = document.createElement('span');
-    const html = md2html(item.text);
-
-    // If markdown was converted, use innerHTML; otherwise use textContent
-    if (html !== item.text && html.includes('<')) {
-      span.innerHTML = html;
-    } else {
-      span.textContent = item.text;
+    const target = currentContainer || readerText;
+    target.appendChild(document.createTextNode(' '));
+  } else if (item.type === 'md-open') {
+    // Create and append the opening tag element
+    const temp = document.createElement('div');
+    temp.innerHTML = item.text;
+    const element = temp.firstChild;
+    if (element) {
+      if (currentContainer) {
+        currentContainer.appendChild(element);
+      } else {
+        readerText.appendChild(element);
+      }
+      // Block-level tags become the new container
+      if (['H1','H2','H3','BLOCKQUOTE','LI'].includes(element.tagName)) {
+        currentContainer = element;
+      } else {
+        // Inline tags - keep track but don't change container
+        currentContainer = element;
+      }
     }
+  } else if (item.type === 'md-close') {
+    // Close the current container
+    if (currentContainer && currentContainer.tagName.toLowerCase() === item.tag) {
+      currentContainer = currentContainer.parentElement === readerText ? null : currentContainer.parentElement;
+    }
+  } else {
+    // Regular word or verb
+    const span = document.createElement('span');
+    span.textContent = item.text;
 
     if (item.type === 'verb') span.className = 'verb';
     if (item.type === 'removed') span.className = 'removed';
-    readerText.appendChild(span);
+
+    const target = currentContainer || readerText;
+    target.appendChild(span);
   }
 
   index++;
