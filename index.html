@@ -44,6 +44,16 @@
   body.hide-stops .stop { opacity:0.15; }
   body.remove-stops .stop { display:none; }
 
+  /* Remove spacing mode */
+  body.remove-spacing #readerText h1,
+  body.remove-spacing #readerText h2,
+  body.remove-spacing #readerText h3,
+  body.remove-spacing #readerText h4,
+  body.remove-spacing #readerText blockquote,
+  body.remove-spacing #readerText ul,
+  body.remove-spacing #readerText ol { margin:0 !important; }
+  body.remove-spacing #readerText hr { margin:0.2em 0 !important; }
+
   /* No colorize mode - everything is white */
   body.no-colorize #readerText,
   body.no-colorize #readerText .verb,
@@ -60,20 +70,20 @@
   body.no-colorize #readerText li::before { color:#fff !important; }
 
   /* Markdown styles */
-  #readerText h1 { font-size:2em; font-weight:bold; margin:0 0 0; color:#fff; }
-  #readerText h2 { font-size:1.5em; font-weight:bold; margin:0 0 0; color:#fff; }
-  #readerText h3 { font-size:1.17em; font-weight:bold; margin:0 0 0; color:#fff; }
-  #readerText h4 { font-size:1em; font-weight:bold; margin:0 0 0; color:#fff; }
+  #readerText h1 { font-size:2em; font-weight:bold; margin:1.7em 0 0; color:#fff; }
+  #readerText h2 { font-size:1.5em; font-weight:bold; margin:1.7em 0 0; color:#fff; }
+  #readerText h3 { font-size:1.17em; font-weight:bold; margin:1.7em 0 0; color:#fff; }
+  #readerText h4 { font-size:1em; font-weight:bold; margin:1.7em 0 0; color:#fff; }
   #readerText strong { font-weight:normal; color:#0f0; }  /* markdown bold - just green, not bold */
   #readerText strong .verb { font-weight:bold; color:#0f0; }  /* verb inside bold - bold AND green */
   #readerText em { font-style:italic; color:#fff; }
   #readerText code { background:#222; padding:0.2em 0.4em; border-radius:3px; font-family:monospace; color:#f80; }
   #readerText a { color:#0ff; text-decoration:underline; }
-  #readerText blockquote { border-left:3px solid #0f0; padding-left:1em; margin:0; opacity:0.8; }
-  #readerText ul, #readerText ol { margin:0; padding-left:2em; list-style:none; }
+  #readerText blockquote { border-left:3px solid #0f0; padding-left:1em; margin:1.7em 0 0; opacity:0.8; }
+  #readerText ul, #readerText ol { margin:1.7em 0 0; padding-left:2em; list-style:none; }
   #readerText li { margin:0; font-weight:normal; }
   #readerText li::before { content:"• "; color:#bbb; margin-right:0.5em; }
-  #readerText hr { border:none; border-top:2px solid #333; margin:0.2em 0; }
+  #readerText hr { border:none; border-top:2px solid #333; margin:1.7em 0; }
 </style>
 </head>
 <body>
@@ -106,8 +116,13 @@
       <label for="colorize">Colorize</label>
     </div>
 
+    <div class="checkbox">
+      <input type="checkbox" id="removeSpacing">
+      <label for="removeSpacing">Remove spacing</label>
+    </div>
+
     <label>WPM: <span id="wpmValue">350</span></label>
-    <input type="range" id="speed" min="50" max="5000" step="50" value="350">
+    <input type="range" id="speed" min="50" max="8000" step="50" value="350">
   </div>
   <div id="readerText">—</div>
 </div>
@@ -560,6 +575,7 @@ const wpmDisplay = document.getElementById('wpmValue');
 const removeStopsCheckbox = document.getElementById('removeStops');
 const deleteStopsCheckbox = document.getElementById('deleteStops');
 const colorizeCheckbox = document.getElementById('colorize');
+const removeSpacingCheckbox = document.getElementById('removeSpacing');
 
 let displayQueue = [];  // array of {text: string, type: 'word'|'space'|'newline'|'removed'}
 let index = 0;
@@ -578,6 +594,7 @@ function restoreState() {
       removeStopsCheckbox.checked = state.removeStops || false;
       deleteStopsCheckbox.checked = state.deleteStops || false;
       colorizeCheckbox.checked = state.colorize !== undefined ? state.colorize : true;
+      removeSpacingCheckbox.checked = state.removeSpacing || false;
 
       // Apply CSS classes based on state
       if (removeStopsCheckbox.checked) {
@@ -588,6 +605,9 @@ function restoreState() {
       }
       if (!colorizeCheckbox.checked) {
         document.body.classList.add('no-colorize');
+      }
+      if (removeSpacingCheckbox.checked) {
+        document.body.classList.add('remove-spacing');
       }
 
       if (state.text && state.index >= 0) {
@@ -614,7 +634,8 @@ function saveState() {
       wpm: speedSlider.value,
       removeStops: removeStopsCheckbox.checked,
       deleteStops: deleteStopsCheckbox.checked,
-      colorize: colorizeCheckbox.checked
+      colorize: colorizeCheckbox.checked,
+      removeSpacing: removeSpacingCheckbox.checked
     }));
   } catch (e) {
     console.error('Failed to save state:', e);
@@ -1021,6 +1042,15 @@ colorizeCheckbox.addEventListener('change', () => {
     document.body.classList.remove('no-colorize');
   } else {
     document.body.classList.add('no-colorize');
+  }
+  saveState();
+});
+
+removeSpacingCheckbox.addEventListener('change', () => {
+  if (removeSpacingCheckbox.checked) {
+    document.body.classList.add('remove-spacing');
+  } else {
+    document.body.classList.remove('remove-spacing');
   }
   saveState();
 });
