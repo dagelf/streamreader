@@ -748,6 +748,10 @@ function displayNext() {
     if (currentContainer && currentContainer.tagName.toLowerCase() === item.tag) {
       currentContainer = currentContainer.parentElement === readerText ? null : currentContainer.parentElement;
     }
+  } else if (item.type === 'punct') {
+    // Punctuation - append as plain text
+    const target = currentContainer || readerText;
+    target.appendChild(document.createTextNode(item.text));
   } else {
     // Regular word or verb
     const span = document.createElement('span');
