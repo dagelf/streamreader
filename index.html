@@ -60,20 +60,20 @@
   body.no-colorize #readerText li::before { color:#fff !important; }
 
   /* Markdown styles */
-  #readerText h1 { font-size:2em; font-weight:bold; margin:0.2em 0 0.1em; color:#fff; }
-  #readerText h2 { font-size:1.5em; font-weight:bold; margin:0.2em 0 0.1em; color:#fff; }
-  #readerText h3 { font-size:1.17em; font-weight:bold; margin:0.2em 0 0.1em; color:#fff; }
-  #readerText h4 { font-size:1em; font-weight:bold; margin:0.2em 0 0.1em; color:#fff; }
+  #readerText h1 { font-size:2em; font-weight:bold; margin:0 0 0; color:#fff; }
+  #readerText h2 { font-size:1.5em; font-weight:bold; margin:0 0 0; color:#fff; }
+  #readerText h3 { font-size:1.17em; font-weight:bold; margin:0 0 0; color:#fff; }
+  #readerText h4 { font-size:1em; font-weight:bold; margin:0 0 0; color:#fff; }
   #readerText strong { font-weight:normal; color:#0f0; }  /* markdown bold - just green, not bold */
   #readerText strong .verb { font-weight:bold; color:#0f0; }  /* verb inside bold - bold AND green */
   #readerText em { font-style:italic; color:#fff; }
   #readerText code { background:#222; padding:0.2em 0.4em; border-radius:3px; font-family:monospace; color:#f80; }
   #readerText a { color:#0ff; text-decoration:underline; }
-  #readerText blockquote { border-left:3px solid #0f0; padding-left:1em; margin:0.2em 0; opacity:0.8; }
-  #readerText ul, #readerText ol { margin:0.1em 0; padding-left:2em; list-style:none; }
-  #readerText li { margin:0 0; font-weight:normal; }
+  #readerText blockquote { border-left:3px solid #0f0; padding-left:1em; margin:0; opacity:0.8; }
+  #readerText ul, #readerText ol { margin:0; padding-left:2em; list-style:none; }
+  #readerText li { margin:0; font-weight:normal; }
   #readerText li::before { content:"• "; color:#bbb; margin-right:0.5em; }
-  #readerText hr { border:none; border-top:2px solid #333; margin:0.5em 0; }
+  #readerText hr { border:none; border-top:2px solid #333; margin:0.2em 0; }
 </style>
 </head>
 <body>
@@ -653,9 +653,6 @@ function buildDisplayQueue() {
     // Detect horizontal rule (---, ***, or em dashes like ---)
     if (line.match(/^(---+|\*\*\*+|———+)$/)) {
       displayQueue.push({text: '<hr>', type: 'md-hr'});
-      if (i < lines.length - 1) {
-        displayQueue.push({text: '\n', type: 'newline'});
-      }
       continue;
     }
 
@@ -864,10 +861,7 @@ function buildDisplayQueue() {
       displayQueue.push({text: `</${lineType}>`, type: 'md-close', tag: lineType});
     }
 
-    // Add newline unless it's the last line
-    if (i < lines.length - 1) {
-      displayQueue.push({text: '\n', type: 'newline'});
-    }
+    // Don't add extra newlines between paragraphs
   }
 
   // Close list if still open at end
