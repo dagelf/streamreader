@@ -12,13 +12,14 @@
   .pane.active { display:flex; flex-direction:column; }
   
   textarea, #readerText {
-    flex:1; width:100%; padding:2rem; font-size:1.15rem; line-height:1.7;
+    flex:1; width:100%; max-width:100%; padding:2rem; font-size:1.15rem; line-height:1.7;
     background:#111; color:#ddd; border:none; resize:none; outline:none;
     font-family: inherit;
     word-wrap: break-word;
     overflow-wrap: break-word;
     white-space: pre-wrap;
     overflow-y: auto;
+    box-sizing: border-box;
   }
   textarea { background:#222; }
   
@@ -69,9 +70,9 @@
   #readerText code { background:#222; padding:0.2em 0.4em; border-radius:3px; font-family:monospace; color:#f80; }
   #readerText a { color:#0ff; text-decoration:underline; }
   #readerText blockquote { border-left:3px solid #0f0; padding-left:1em; margin:1em 0; opacity:0.8; }
-  #readerText ul, #readerText ol { margin:0.5em 0; padding-left:2em; list-style:none; }
-  #readerText li { margin:0.25em 0; }
-  #readerText li::before { content:"• "; color:#0f0; margin-right:0.5em; }
+  #readerText ul, #readerText ol { margin:0.5em 0; padding-left:4em; list-style:none; }
+  #readerText li { margin:0.25em 0; text-indent:-1.5em; padding-left:1.5em; }
+  #readerText li::before { content:"• "; color:#0f0; }
   #readerText hr { border:none; border-top:2px solid #333; margin:2em 0; }
 </style>
 </head>
